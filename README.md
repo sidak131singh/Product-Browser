@@ -140,33 +140,3 @@ npm start               # http://localhost:3000
 3. Build command: `npm install`. Start command: `npm start`.
 4. Add env var `DATABASE_URL` pointing at your Neon connection string.
 
-## What I'd improve with more time
-
-- **Total counts**: I deliberately did not return a total result count
-  (`SELECT count(*) ... WHERE category = ...`) alongside paginated results,
-  because an accurate `COUNT(*)` over a filtered set is itself a full index
-  scan and would undermine the "fast" requirement, and the count is also
-  constantly changing while it's being computed — so it's its own version of
-  the same consistency problem. If a total/approximate count were required
-  I'd maintain it incrementally (e.g. a per-category counter updated in the
-  same transaction as inserts) rather than computing it per request.
-- **Cursor validation**: currently a malformed cursor returns 400; I'd add
-  a signature (HMAC) on the cursor so a client can't construct an arbitrary
-  one, though for this use case (read-only browsing) the impact of a forged
-  cursor is minimal.
-- **Connection pooling tuning** and read replicas if this needed to scale
-  well past 200k rows / high concurrent read load.
-- **Price/category-range filters** would need additional composite indexes
-  matched to the actual filter combinations used.
-
-## How I used AI
-
-I used AI to scaffold boilerplate (Express routes, the static UI, the
-seed script's SQL templating) faster than typing it by hand, and to sanity-
-check the `EXPLAIN ANALYZE` output. The pagination *strategy* — keyset vs.
-OFFSET, why `updated_at` can't be the sort key, the tiebreaker reasoning, and
-the index design — is the part of this task that actually required
-understanding, and I made sure I could explain and verify each piece (the
-EXPLAIN ANALYZE comparison and the concurrent-insert test in the AI chat were
-run against a real local Postgres instance to confirm the behavior, not taken
-on faith).
