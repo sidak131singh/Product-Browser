@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Product Browser</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #181b22;
+    --border: #262a33;
+    --text: #e8eaed;
+    --muted: #8b919c;
+    --accent: #5b8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  select {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+  #stats { color: var(--muted); font-size: 13px; margin-left: auto; }
+  main { max-width: 1000px; margin: 0 auto; padding: 16px 24px 80px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .card .name { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .card .cat {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(91,140,255,0.12);
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-bottom: 8px;
+  }
+  .card .price { font-size: 16px; font-weight: 700; }
+  .card .meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  #sentinel { height: 1px; }
+  #loading, #end {
+    text-align: center;
+    padding: 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  #loadMoreBtn {
+    display: block;
+    margin: 24px auto;
+    padding: 10px 24px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #loadMoreBtn:disabled { opacity: 0.5; cursor: default; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Product Browser</h1>
+    <select id="categorySelect">
+      <option value="All">All categories</option>
+    </select>
+    <span id="stats"></span>
+  </header>
+  <main>
+    <div class="grid" id="grid"></div>
+    <div id="sentinel"></div>
+    <button id="loadMoreBtn">Load more</button>
+    <div id="loading" style="display:none">Loading…</div>
+    <div id="end" style="display:none">— end of results —</div>
+  </main>
+
+<script>
+const grid = document.getElementById('grid');
+const categorySelect = document.getElementById('categorySelect');
+const loadingEl = document.getElementById('loading');
+const endEl = document.getElementById('end');
+const statsEl = document.getElementById('stats');
+const loadMoreBtn = document.getElementById('loadMoreBtn');
+
+let cursor = null;
+let loading = false;
+let done = false;
+let totalShown = 0;
+
+function fmtDate(iso) {
+  return new Date(iso).toLocaleString();
+}
+
+function renderCard(p) {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.innerHTML = `
+    <span class="cat">${p.category}</span>
+    <div class="name">${p.name}</div>
+    <div class="price">$${p.price}</div>
+    <div class="meta">created ${fmtDate(p.created_at)}</div>
+  `;
+  return div;
+}
+
+async function loadMore() {
+  if (loading || done) return;
+  loading = true;
+  loadingEl.style.display = 'block';
+  loadMoreBtn.disabled = true;
+
+  try {
+    const params = new URLSearchParams();
+    params.set('limit', '24');
+    const cat = categorySelect.value;
+    if (cat && cat !== 'All') params.set('category', cat);
+    if (cursor) params.set('cursor', cursor);
+
+    const res = await fetch(`/api/products?${params.toString()}`);
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    const json = await res.json();
+    if (json.error) throw new Error(json.error);
+
+    json.data.forEach(p => grid.appendChild(renderCard(p)));
+    totalShown += json.data.length;
+    statsEl.textContent = `${totalShown} loaded`;
+
+    cursor = json.nextCursor;
+
+    if (!cursor) {
+      done = true;
+      endEl.style.display = 'block';
+      loadMoreBtn.style.display = 'none';
+    }
+  } catch (err) {
+    console.error('loadMore failed:', err);
+    statsEl.textContent = `Error loading products — see console`;
+  } finally {
+    loading = false;
+    loadingEl.style.display = 'none';
+    loadMoreBtn.disabled = false;
+  }
+}
+
+loadMoreBtn.addEventListener('click', loadMore);
+
+function reset() {
+  grid.innerHTML = '';
+  cursor = null;
+  done = false;
+  totalShown = 0;
+  endEl.style.display = 'none';
+  loadMoreBtn.style.display = 'block';
+  loadMore();
+}
+
+categorySelect.addEventListener('change', reset);
+
+// Infinite scroll via IntersectionObserver on the sentinel element
+const observer = new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting) loadMore();
+}, { rootMargin: '400px' });
+observer.observe(document.getElementById('sentinel'));
+
+// init: load categories, then first page
+fetch('/api/categories')
+  .then(r => r.json())
+  .then(({ categories }) => {
+    categories.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      categorySelect.appendChild(opt);
+    });
+  })
+  .then(loadMore);
+</script>
+</body>
+</html>
